@@ -1,0 +1,99 @@
+import os
+import datetime
+import requests
+from dotenv import load_dotenv
+from openai import OpenAI
+
+# -------------------------------
+# Load environment variables
+# -------------------------------
+load_dotenv()
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+ZENSERP_API_KEY = os.getenv("ZENSERP_API_KEY")
+
+# Initialize OpenAI client (new API)
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
+
+# -------------------------------
+# Function to get current date
+# -------------------------------
+def get_current_date():
+    return datetime.datetime.now().strftime("%B %d, %Y")
+
+# -------------------------------
+# Zenserp search function
+# -------------------------------
+def zenserp_search(query, max_results=5):
+    url = "https://app.zenserp.com/api/v2/search"
+    params = {
+        "q": query,
+        "apikey": ZENSERP_API_KEY,
+        "num": max_results,
+        "search_type": "web"
+    }
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+    except Exception as e:
+        print(f"Error fetching search results: {e}")
+        return "No search results found."
+
+    results = []
+    for item in data.get("organic", []):
+        title = item.get("title", "")
+        snippet = item.get("snippet", "")
+        link = item.get("url", "")
+        results.append(f"{title}\n{snippet}\n{link}")
+    return "\n\n".join(results)
+
+# -------------------------------
+# Function to generate search query & answer
+# -------------------------------
+def ask_llm(user_question):
+    try:
+        # Step 1: Generate concise web search query
+        prompt_query = f"Generate a concise web search query for: {user_question}"
+        completion_query = openai_client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt_query}],
+            temperature=0.5
+        )
+        search_query = completion_query.choices[0].message.content.strip()
+        print(f"🔍 Search query generated: {search_query}\n")
+
+        # Step 2: Fetch search results
+        search_results = zenserp_search(search_query)
+
+        # Step 3: Summarize and answer
+        current_date = get_current_date()
+        prompt_answer = (
+            f"Today is {current_date}. Based on the following search results, answer the question: {user_question}\n\n"
+            f"Search Results:\n{search_results}"
+        )
+
+        completion_answer = openai_client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt_answer}],
+            temperature=0.5
+        )
+
+        answer = completion_answer.choices[0].message.content.strip()
+        return answer
+
+    except Exception as e:
+        return f"An error occurred (possibly quota or API issue): {e}"
+
+# -------------------------------
+# Main program
+# -------------------------------
+def main():
+    print("Welcome to LLM + Zenserp Web Search App!")
+    user_input = input("Ask me anything: ")
+    answer = ask_llm(user_input)
+    print("\n🧠 Answer:")
+    print(answer)
+
+if __name__ == "__main__":
+    main()
